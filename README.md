@@ -30,8 +30,16 @@ This is equivalent to convolution with a nonnegative Fejer kernel. Hence, when t
 
 ## Installation
 
+For editable installation with pip:
+
 ```bash
-python -m pip install -e .[dev]
+python -m pip install -e .
+```
+
+For development with Poetry:
+
+```bash
+poetry install --with dev
 ```
 
 ## Basic usage
@@ -58,7 +66,7 @@ estimate = filter_.filter_state.mean_direction()
 Run the included comparison script from the repository root:
 
 ```bash
-python examples/compare_with_fourier_filters.py --coefficients 5 9 15 25
+python examples/compare_with_fourier_filters.py --coefficients 5 9 15 25 33
 ```
 
 The script compares:
