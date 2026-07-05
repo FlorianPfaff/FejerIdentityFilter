@@ -1,57 +1,90 @@
-# Fejér Identity Filter
+# Fejer Identity Filter
 
-This repository contains a PyRecEst-style implementation of a Fejér/Cesàro-reduced identity Fourier filter for circular and hypertoroidal recursive Bayesian estimation.
+This repository contains a PyRecEst-style implementation of a Fejer/Cesaro-reduced identity Fourier filter for circular and hypertoroidal Bayesian filtering.
 
-The implementation is intended as a lightweight experimental companion to PyRecEst's `HypertoroidalFourierFilter`. It keeps the computationally attractive identity Fourier representation, but replaces sharp coefficient truncation after multiplicative update steps by a Fejér reduction. For a one-dimensional coefficient vector with indices `k = -K, ..., K`, the retained coefficients are weighted by
+The package is designed as a small extension around PyRecEst's `HypertoroidalFourierDistribution` and `HypertoroidalFourierFilter` classes. It adds:
+
+- `FejerHypertoroidalFourierDistribution`, an identity Fourier distribution whose coefficient reduction uses tensor-product Fejer weights instead of sharp truncation.
+- `FejerIdentityFilter`, a hypertoroidal filter with the same identity-model interface as PyRecEst's Fourier filters.
+- `examples/compare_with_fourier_filters.py`, a reproducible comparison against PyRecEst's ordinary Fourier identity filter (IFF) and Fourier square-root filter (SqFF).
+
+## Motivation
+
+The ordinary IFF represents the density directly by Fourier coefficients. This makes the additive-noise identity prediction step especially simple: the topology-aware convolution is a Hadamard product of identity coefficients. However, multiplication followed by sharp coefficient truncation can introduce negative density values.
+
+The SqFF represents the square root of the density and therefore keeps the reconstructed density nonnegative. The cost is that the prediction step is more complicated because square roots do not commute with convolution.
+
+The Fejer identity filter keeps the IFF representation and replaces sharp coefficient truncation after pointwise multiplication by a Fejer mean. For a one-dimensional coefficient vector with order `K`, the retained coefficient of index `k` is multiplied by
 
 ```text
-lambda_k = 1 - |k| / (K + 1).
+lambda_k = 1 - |k| / (K + 1),   k = -K, ..., K.
 ```
 
-For `d` hypertoroidal dimensions, separable product weights are used:
+For a hypertorus, the implementation uses the tensor-product weights
 
 ```text
 lambda_k = prod_j (1 - |k_j| / (K_j + 1)).
 ```
 
-This corresponds to convolution with a product Fejér kernel. If the untruncated trigonometric polynomial is nonnegative, this positive-kernel reduction preserves nonnegativity while keeping the identity-filter prediction step simple.
+This is equivalent to convolution with a nonnegative Fejer kernel. Hence, when the untruncated multiplication result is a nonnegative trigonometric polynomial, Fejer reduction is positivity-preserving. The trade-off is deliberate smoothing.
 
 ## Installation
 
 ```bash
-pip install -e .
+python -m pip install -e .[dev]
 ```
 
-The package depends on PyRecEst and follows its filter/distribution conventions.
-
-## Usage
+## Basic usage
 
 ```python
-from pyrecest.backend import array
+import pyrecest.backend as backend
 from pyrecest.distributions import WrappedNormalDistribution
 
 from fejer_identity_filter import FejerIdentityFilter
 
-f = FejerIdentityFilter((21,))
-f.filter_state = WrappedNormalDistribution(array(1.0), array(0.4))
+n_coefficients = (33,)
+filter_ = FejerIdentityFilter(n_coefficients)
 
-system_noise = WrappedNormalDistribution(array(0.0), array(0.2))
-f.predict_identity(system_noise)
+process_noise = WrappedNormalDistribution(backend.array(0.0), backend.array(0.25))
+measurement_noise = WrappedNormalDistribution(backend.array(0.0), backend.array(0.20))
 
-measurement_noise = WrappedNormalDistribution(array(0.0), array(0.6))
-f.update_identity(measurement_noise, array([1.2]))
-
-estimate = f.get_point_estimate()
+filter_.predict_identity(process_noise)
+filter_.update_identity(measurement_noise, backend.array([1.0]))
+estimate = filter_.filter_state.mean_direction()
 ```
 
-## What is implemented
+## Comparison with Fourier filters
 
-- `fejer_identity_filter.fejer_weights(shape)`: separable Fejér weights for centered Fourier coefficient tensors.
-- `FejerHypertoroidalFourierDistribution`: an identity-transformed `HypertoroidalFourierDistribution` with Fejér reduction after coefficient-growth operations.
-- `FejerIdentityFilter`: a PyRecEst-style hypertoroidal filter using the Fejér identity distribution.
+Run the included comparison script from the repository root:
 
-The current implementation supports the identity transformation only. This is deliberate: the purpose of the filter is to keep the cheap identity-filter prediction step while replacing sharp truncation by Fejér/Cesàro reduction in the steps where coefficient support grows.
+```bash
+python examples/compare_with_fourier_filters.py --coefficients 5 9 15 25
+```
 
-## Notes
+The script compares:
 
-The Fejér reduction is a positivity-preserving operator for nonnegative trigonometric polynomials. It is not a magic repair step for an already negative identity approximation; in that case it usually damps Gibbs-type oscillations, but a grid or certificate check is still needed if strict nonnegativity must be verified.
+- PyRecEst IFF: `HypertoroidalFourierFilter(..., transformation="identity")`
+- Fejer identity filter: `FejerIdentityFilter`
+- PyRecEst SqFF: `HypertoroidalFourierFilter(..., transformation="sqrt")`
+
+It reports runtime per predict/update cycle, circular mean error against a dense-grid reference, integrated absolute density error, minimum PDF value on a diagnostic grid, and negative grid mass.
+
+Qualitatively, the expected trade-off is:
+
+| Filter | Representation | Reduction after update | Additive identity prediction | Nonnegativity behavior | Typical role |
+|---|---|---|---|---|---|
+| IFF | density coefficients | sharp truncation | cheapest Hadamard product | not guaranteed after truncation | fastest baseline |
+| Fejer-IFF | density coefficients | Fejer/Cesaro smoothing | same identity-coefficient structure | positivity-preserving when reducing a nonnegative trigonometric polynomial | positivity-oriented identity variant |
+| SqFF | square-root coefficients | square-root coefficient truncation | more expensive conversion through density | nonnegative by construction | strongest positivity baseline |
+
+A representative run shows the intended behavior: the ordinary IFF is usually fastest but may have negative side lobes, SqFF is nonnegative but slower, and Fejer-IFF removes grid-level negativity while introducing smoothing bias.
+
+## Tests
+
+```bash
+pytest
+```
+
+## Limitations
+
+Fejer reduction is a positive linear operator applied to a nonnegative trigonometric polynomial. It is not, by itself, a certificate that an arbitrary identity coefficient tensor is globally nonnegative. For exact global certificates, one would need an additional nonnegative projection, sum-of-squares certificate, or spectral-factor representation.
