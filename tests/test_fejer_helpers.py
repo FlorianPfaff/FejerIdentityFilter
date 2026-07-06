@@ -66,7 +66,7 @@ def test_adaptive_reduction_keeps_nonnegative_sharp_result_unchanged():
 
 
 def test_adaptive_reduction_damps_negative_sharp_result():
-    coeff = np.array([0.0, -0.25, 1.0 / (2.0 * np.pi), -0.25, 0.0])
+    coeff = np.array([0.0, -0.1, 1.0 / (2.0 * np.pi), -0.1, 0.0])
     sharp = centered_coefficients(coeff, (3,))
     reduced, exponent = adaptive_kernel_reduce_coefficients(coeff, (3,), kernel="korovkin", return_exponent=True)
 
