@@ -1,4 +1,4 @@
-"""Compare the Fejer identity filter with PyRecEst's Fourier filters.
+"""Compare positive-kernel identity filters with PyRecEst's Fourier filters.
 
 The scenario is a one-dimensional circular tracking problem with an identity
 system model and identity measurement model. A dense-grid Bayesian recursion is
@@ -44,15 +44,26 @@ class ComparisonResult:
     negative_mass_on_grid: float
 
 
+POSITIVE_KERNEL_FILTERS = ("PlainFejerIdentityFilter", "AdaptiveFKIdentityFilter")
+
+
 def _angle_distance(a: float, b: float) -> float:
     """Return the unsigned circular distance in radians."""
 
     return abs((a - b + math.pi) % (2.0 * math.pi) - math.pi)
 
 
+def _positive_kernel_options(filter_name: str):
+    if filter_name == "PlainFejerIdentityFilter":
+        return {"reduction_kernel": "fejer", "adaptive_reduction": False}
+    if filter_name == "AdaptiveFKIdentityFilter":
+        return {"reduction_kernel": "korovkin", "adaptive_reduction": True}
+    raise ValueError(f"Unknown positive-kernel filter {filter_name!r}.")
+
+
 def _make_filter(filter_name: str, n_coefficients: int):
-    if filter_name == "FejerIdentityFilter":
-        return FejerIdentityFilter((n_coefficients,))
+    if filter_name in POSITIVE_KERNEL_FILTERS:
+        return FejerIdentityFilter((n_coefficients,), **_positive_kernel_options(filter_name))
     if filter_name == "IFF":
         return HypertoroidalFourierFilter((n_coefficients,), transformation="identity")
     if filter_name == "SqFF":
@@ -63,22 +74,22 @@ def _make_filter(filter_name: str, n_coefficients: int):
 def _as_fourier_model_distribution(filter_name: str, distribution, n_coefficients: int):
     """Approximate an i.i.d. model noise once, as in the Fourier filters.
 
-    For the Fejer filter, the initial model-density approximation is not Fejer
-    weighted; this isolates Fejer/Cesaro reduction to coefficient-growth steps
-    such as posterior multiplication.
+    For positive-kernel identity filters, the initial model-density
+    approximation is not damped. This isolates positive-kernel reduction to
+    coefficient-growth steps such as posterior multiplication.
     """
 
     shape = (n_coefficients,)
-    if filter_name == "FejerIdentityFilter":
-        return FejerHypertoroidalFourierDistribution.from_distribution(distribution, shape, apply_fejer=False)
+    if filter_name in POSITIVE_KERNEL_FILTERS:
+        return FejerHypertoroidalFourierDistribution.from_distribution(distribution, shape, apply_fejer=False, **_positive_kernel_options(filter_name))
     transformation = "identity" if filter_name == "IFF" else "sqrt"
     return HypertoroidalFourierDistribution.from_distribution(distribution, shape, transformation)
 
 
 def _as_fourier_prior(filter_name: str, distribution, n_coefficients: int):
     shape = (n_coefficients,)
-    if filter_name == "FejerIdentityFilter":
-        return FejerHypertoroidalFourierDistribution.from_distribution(distribution, shape, apply_fejer=False)
+    if filter_name in POSITIVE_KERNEL_FILTERS:
+        return FejerHypertoroidalFourierDistribution.from_distribution(distribution, shape, apply_fejer=False, **_positive_kernel_options(filter_name))
     transformation = "identity" if filter_name == "IFF" else "sqrt"
     return HypertoroidalFourierDistribution.from_distribution(distribution, shape, transformation)
 
@@ -167,7 +178,7 @@ def compare_filters(
 
     results: list[ComparisonResult] = []
     for n_coefficients in coefficient_counts:
-        for filter_name in ("IFF", "FejerIdentityFilter", "SqFF"):
+        for filter_name in ("IFF", "PlainFejerIdentityFilter", "AdaptiveFKIdentityFilter", "SqFF"):
             filt, runtime_per_cycle = _run_filter(filter_name, n_coefficients, measurements, repetitions)
             pdf_vals = _pdf_on_grid(filt.filter_state, grid)
             mean_est = _circular_mean_from_grid(grid, np.maximum(pdf_vals, 0.0))
