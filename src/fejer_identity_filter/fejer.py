@@ -1,4 +1,4 @@
-"""Utilities for centered Fourier coefficient tensors and Fejér weights."""
+"""Utilities for centered Fourier coefficient tensors and Fejer/Cesaro weights."""
 
 from __future__ import annotations
 
@@ -8,11 +8,16 @@ from typing import Iterable
 import numpy as np
 
 
-def normalize_coefficient_shape(shape_like: int | Iterable[int], *, dim: int | None = None, name: str = "n_coefficients") -> tuple[int, ...]:
+CoefficientShape = int | Iterable[int]
+
+
+def normalize_coefficient_shape(shape_like: CoefficientShape, *, dim: int | None = None, name: str = "n_coefficients") -> tuple[int, ...]:
     """Validate and normalize a centered Fourier coefficient shape.
 
     PyRecEst's hypertoroidal Fourier coefficients use odd side lengths so that
-    the central entry corresponds to the zero-frequency coefficient.
+    the central tensor entry is the zero-frequency coefficient.  A scalar shape
+    is interpreted as a one-dimensional shape unless ``dim`` is given; with
+    ``dim`` it is broadcast to all dimensions.
     """
 
     if isinstance(shape_like, bool):
@@ -38,7 +43,7 @@ def normalize_coefficient_shape(shape_like: int | Iterable[int], *, dim: int | N
     return values
 
 
-def centered_coefficients(coefficients, target_shape: int | Iterable[int]):
+def centered_coefficients(coefficients, target_shape: CoefficientShape):
     """Center-crop or center-pad a Fourier coefficient tensor.
 
     Parameters
@@ -50,9 +55,8 @@ def centered_coefficients(coefficients, target_shape: int | Iterable[int]):
     """
 
     coeff_arr = np.asarray(coefficients)
-    target_shape = normalize_coefficient_shape(target_shape, dim=coeff_arr.ndim)
-    current_shape = coeff_arr.shape
-    normalize_coefficient_shape(current_shape, dim=coeff_arr.ndim, name="coefficients.shape")
+    target_shape = normalize_coefficient_shape(target_shape, dim=coeff_arr.ndim, name="target_shape")
+    current_shape = normalize_coefficient_shape(coeff_arr.shape, dim=coeff_arr.ndim, name="coefficients.shape")
 
     if current_shape == target_shape:
         return coeff_arr.copy()
@@ -71,13 +75,14 @@ def centered_coefficients(coefficients, target_shape: int | Iterable[int]):
     return result
 
 
-def fejer_weights(shape: int | Iterable[int], *, dtype=float):
-    """Return separable Fejér/Cesàro weights for centered Fourier coefficients.
+def fejer_weights(shape: CoefficientShape, *, dtype=float):
+    """Return separable Fejer/Cesaro weights for centered Fourier coefficients.
 
-    For each side length ``n = 2K + 1`` the one-dimensional weights are
+    For each side length ``n = 2*K + 1`` the one-dimensional weights are
     ``1 - abs(k)/(K + 1)`` for ``k = -K, ..., K``. For multidimensional
     tensors the returned weights are the tensor product of the one-dimensional
-    weights.
+    weights.  The central weight is exactly one, so the zero-frequency
+    coefficient and therefore the integral are unchanged.
     """
 
     shape = normalize_coefficient_shape(shape, name="shape")
@@ -96,8 +101,26 @@ def fejer_weights(shape: int | Iterable[int], *, dtype=float):
 
 
 def apply_fejer_weights(coefficients):
-    """Apply separable Fejér weights to a centered coefficient tensor."""
+    """Apply separable Fejer weights to a centered coefficient tensor."""
 
     coeff_arr = np.asarray(coefficients)
+    normalize_coefficient_shape(coeff_arr.shape, dim=coeff_arr.ndim, name="coefficients.shape")
     weights = fejer_weights(coeff_arr.shape, dtype=float)
     return coeff_arr * weights
+
+
+def fejer_reduce_coefficients(coefficients, target_shape: CoefficientShape | None = None):
+    """Reduce centered coefficients by center alignment followed by Fejer weights.
+
+    This is the coefficient-space operation used by the Fejer identity filter in
+    place of PyRecEst's sharp truncation.  If ``target_shape`` is smaller than
+    the input shape, only the central low-frequency block is retained before the
+    Fejer/Cesaro weights are applied.  If it is larger, the coefficient tensor is
+    center-padded with zeros before weighting.
+    """
+
+    coeff_arr = np.asarray(coefficients)
+    if target_shape is None:
+        target_shape = coeff_arr.shape
+    reduced = centered_coefficients(coeff_arr, target_shape)
+    return apply_fejer_weights(reduced)
