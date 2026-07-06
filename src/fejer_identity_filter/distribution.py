@@ -1,4 +1,4 @@
-"""Fejér-reduced identity Fourier distributions on hypertori."""
+"""Fejer-reduced identity Fourier distributions on hypertori."""
 
 from __future__ import annotations
 
@@ -6,20 +6,19 @@ import copy
 import warnings
 
 import numpy as np
-from scipy import signal
-
+from pyrecest.backend import signal
 from pyrecest.distributions.hypertorus.abstract_hypertoroidal_distribution import AbstractHypertoroidalDistribution
 from pyrecest.distributions.hypertorus.hypertoroidal_fourier_distribution import HypertoroidalFourierDistribution
 
-from .fejer import apply_fejer_weights, centered_coefficients, normalize_coefficient_shape
+from .fejer import apply_fejer_weights, centered_coefficients, fejer_reduce_coefficients, normalize_coefficient_shape
 
 
 class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
-    """Identity Fourier distribution with Fejér/Cesàro coefficient reduction.
+    """Identity Fourier distribution with Fejer/Cesaro coefficient reduction.
 
     The class intentionally supports only the ``"identity"`` transformation.
     Multiplication of two identity Fourier distributions increases coefficient
-    support; this subclass uses a Fejér reduction when reducing that support
+    support; this subclass uses a Fejer reduction when reducing that support
     back to the configured coefficient tensor shape.
     """
 
@@ -34,7 +33,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         *,
         apply_fejer: bool = True,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Convert an identity HFD to a Fejér identity HFD."""
+        """Convert an identity HFD to a Fejer identity HFD."""
 
         if not isinstance(distribution, HypertoroidalFourierDistribution):
             raise TypeError("distribution must be a HypertoroidalFourierDistribution.")
@@ -45,10 +44,10 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             n_coefficients = distribution.coeff_mat.shape
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=distribution.dim)
 
-        result = cls(centered_coefficients(distribution.coeff_mat, n_coefficients))
+        coeff = centered_coefficients(distribution.coeff_mat, n_coefficients)
         if apply_fejer:
-            return result.fejer_reduce(n_coefficients)
-        return result
+            coeff = apply_fejer_weights(coeff)
+        return cls(coeff)
 
     @classmethod
     def from_distribution(
@@ -58,7 +57,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         *,
         apply_fejer: bool = True,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Approximate a hypertoroidal distribution in Fejér-reduced identity form."""
+        """Approximate a hypertoroidal distribution in Fejer-reduced identity form."""
 
         if isinstance(distribution, HypertoroidalFourierDistribution):
             return cls.from_fourier_distribution(distribution, n_coefficients, apply_fejer=apply_fejer)
@@ -76,7 +75,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         *,
         apply_fejer: bool = True,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Construct a Fejér identity HFD by sampling a vectorized function."""
+        """Construct a Fejer identity HFD by sampling a vectorized function."""
 
         base = HypertoroidalFourierDistribution.from_function(fun, n_coefficients, "identity")
         return cls.from_fourier_distribution(base, n_coefficients, apply_fejer=apply_fejer)
@@ -90,7 +89,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         already_transformed: bool = False,
         apply_fejer: bool = True,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Construct a Fejér identity HFD from values on a regular grid."""
+        """Construct a Fejer identity HFD from values on a regular grid."""
 
         base = HypertoroidalFourierDistribution.from_function_values(
             fvals,
@@ -98,12 +97,13 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             desired_transformation="identity",
             already_transformed=already_transformed,
         )
-        return cls.from_fourier_distribution(base, n_coefficients or base.coeff_mat.shape, apply_fejer=apply_fejer)
+        target_shape = base.coeff_mat.shape if n_coefficients is None else n_coefficients
+        return cls.from_fourier_distribution(base, target_shape, apply_fejer=apply_fejer)
 
     def fejer_reduce(self, n_coefficients: int | tuple[int, ...] | None = None) -> "FejerHypertoroidalFourierDistribution":
-        """Center-crop/pad and apply separable Fejér weights.
+        """Center-crop/pad and apply separable Fejer weights.
 
-        This is the Fejér analogue of sharp truncation. The zero-frequency
+        This is the Fejer analogue of sharp truncation. The zero-frequency
         coefficient is unchanged by the weights; the constructor normalizes the
         result if the input represented an unnormalized density.
         """
@@ -111,14 +111,12 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         if n_coefficients is None:
             n_coefficients = self.coeff_mat.shape
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
-        coeff = centered_coefficients(self.coeff_mat, n_coefficients)
-        coeff = apply_fejer_weights(coeff)
-        return type(self)(coeff)
+        return type(self)(fejer_reduce_coefficients(self.coeff_mat, n_coefficients))
 
     def truncate(self, n_coefficients: int | tuple[int, ...], force_normalization: bool = False):
         """Return a distribution with the requested centered coefficient shape.
 
-        If the shape changes, reduction is performed with Fejér weights instead
+        If the shape changes, reduction is performed with Fejer weights instead
         of sharp truncation. If the shape is unchanged, only optional
         normalization is performed, mirroring PyRecEst's truncate semantics.
         """
@@ -132,7 +130,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         return self.fejer_reduce(n_coefficients)
 
     def multiply(self, f2: HypertoroidalFourierDistribution, n_coefficients=None):
-        """Pointwise multiplication followed by Fejér coefficient reduction."""
+        """Pointwise multiplication followed by Fejer coefficient reduction."""
 
         self._validate_compatible_identity(f2, "multiply")
         if n_coefficients is None:
@@ -140,14 +138,13 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
 
         conv = signal.fftconvolve(self.coeff_mat, f2.coeff_mat, mode="full")
-        unnormalized = type(self)(conv)
-        return unnormalized.fejer_reduce(n_coefficients)
+        return type(self)(fejer_reduce_coefficients(conv, n_coefficients))
 
     def convolve(self, f2: HypertoroidalFourierDistribution, n_coefficients=None):
         """Topology-aware convolution for additive noise in identity form.
 
         For equal coefficient shapes this keeps the ordinary IFF Hadamard-product
-        prediction. Fejér reduction is only used to align differing coefficient
+        prediction. Fejer reduction is only used to align differing coefficient
         shapes.
         """
 
@@ -168,7 +165,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             return type(self)(c_conv)
 
     def shift(self, shift_by):
-        """Shift the distribution on the hypertorus and keep the Fejér subclass."""
+        """Shift the distribution on the hypertorus and keep the Fejer subclass."""
 
         shifted = super().shift(shift_by)
         return type(self).from_fourier_distribution(shifted, shifted.coeff_mat.shape, apply_fejer=False)
