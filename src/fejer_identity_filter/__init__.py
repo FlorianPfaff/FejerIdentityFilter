@@ -1,12 +1,13 @@
-"""Fejér/Cesàro-reduced identity Fourier filtering for PyRecEst."""
+"""Fejer/Cesaro-reduced identity Fourier filtering for PyRecEst."""
 
-from .fejer import apply_fejer_weights, centered_coefficients, fejer_weights
+from .fejer import apply_fejer_weights, centered_coefficients, fejer_reduce_coefficients, fejer_weights
 
 __all__ = [
     "FejerIdentityFilter",
     "FejerHypertoroidalFourierDistribution",
     "apply_fejer_weights",
     "centered_coefficients",
+    "fejer_reduce_coefficients",
     "fejer_weights",
 ]
 
