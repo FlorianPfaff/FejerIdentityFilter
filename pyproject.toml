@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "fejer-identity-filter"
-version = "0.1.0"
-description = "Fejer/Cesaro-reduced identity Fourier filter for hypertoroidal recursive Bayesian estimation."
+version = "0.2.0"
+description = "Adaptive positive-kernel identity Fourier filter for hypertoroidal recursive Bayesian estimation."
 readme = "README.md"
 authors = ["Florian Pfaff"]
 license = "MIT"
@@ -12,6 +12,8 @@ keywords = [
   "recursive-estimation",
   "fourier-series",
   "fejer-kernel",
+  "korovkin-kernel",
+  "positive-kernel",
   "directional-statistics",
   "hypertorus",
 ]
