@@ -1,29 +1,62 @@
-"""Fejer-reduced identity Fourier distributions on hypertori."""
+"""Positive-kernel-reduced identity Fourier distributions on hypertori."""
 
 from __future__ import annotations
 
 import copy
 import warnings
+from typing import Any
 
 import numpy as np
 from pyrecest.backend import signal
 from pyrecest.distributions.hypertorus.abstract_hypertoroidal_distribution import AbstractHypertoroidalDistribution
 from pyrecest.distributions.hypertorus.hypertoroidal_fourier_distribution import HypertoroidalFourierDistribution
 
-from .fejer import apply_fejer_weights, centered_coefficients, fejer_reduce_coefficients, normalize_coefficient_shape
+from .fejer import adaptive_kernel_reduce_coefficients, centered_coefficients, normalize_coefficient_shape, normalize_kernel_name, reduce_coefficients
 
 
 class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
-    """Identity Fourier distribution with Fejer/Cesaro coefficient reduction.
+    """Identity Fourier distribution with positive-kernel coefficient reduction.
 
     The class intentionally supports only the ``"identity"`` transformation.
     Multiplication of two identity Fourier distributions increases coefficient
-    support; this subclass uses a Fejer reduction when reducing that support
-    back to the configured coefficient tensor shape.
+    support. This subclass can either reduce the support unconditionally with a
+    positive kernel such as Fejer or Fejer-Korovkin, or first try the ordinary
+    sharp identity reduction and only damp coefficients if grid negativity is
+    detected.
     """
 
-    def __init__(self, coeff_mat):
+    def __init__(
+        self,
+        coeff_mat,
+        *,
+        reduction_kernel: str = "fejer",
+        adaptive_reduction: bool = False,
+        min_value_tolerance: float = 1e-12,
+        oversampling_factor: int = 1,
+        exponent_search_steps: int = 24,
+    ):
+        self.reduction_kernel = normalize_kernel_name(reduction_kernel)
+        self.adaptive_reduction = bool(adaptive_reduction)
+        self.min_value_tolerance = float(min_value_tolerance)
+        self.oversampling_factor = int(oversampling_factor)
+        self.exponent_search_steps = int(exponent_search_steps)
+        self.last_reduction_exponent: float | None = None
         super().__init__(coeff_mat, transformation="identity")
+
+    @property
+    def reduction_options(self) -> dict[str, Any]:
+        """Return constructor keyword arguments preserving reduction settings."""
+
+        return {
+            "reduction_kernel": self.reduction_kernel,
+            "adaptive_reduction": self.adaptive_reduction,
+            "min_value_tolerance": self.min_value_tolerance,
+            "oversampling_factor": self.oversampling_factor,
+            "exponent_search_steps": self.exponent_search_steps,
+        }
+
+    def _new_with_same_reduction(self, coeff_mat) -> "FejerHypertoroidalFourierDistribution":
+        return type(self)(coeff_mat, **self.reduction_options)
 
     @classmethod
     def from_fourier_distribution(
@@ -32,8 +65,13 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients: int | tuple[int, ...] | None = None,
         *,
         apply_fejer: bool = True,
+        reduction_kernel: str = "fejer",
+        adaptive_reduction: bool = False,
+        min_value_tolerance: float = 1e-12,
+        oversampling_factor: int = 1,
+        exponent_search_steps: int = 24,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Convert an identity HFD to a Fejer identity HFD."""
+        """Convert an identity HFD to a positive-kernel identity HFD."""
 
         if not isinstance(distribution, HypertoroidalFourierDistribution):
             raise TypeError("distribution must be a HypertoroidalFourierDistribution.")
@@ -44,10 +82,17 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             n_coefficients = distribution.coeff_mat.shape
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=distribution.dim)
 
-        coeff = centered_coefficients(distribution.coeff_mat, n_coefficients)
+        result = cls(
+            centered_coefficients(distribution.coeff_mat, n_coefficients),
+            reduction_kernel=reduction_kernel,
+            adaptive_reduction=adaptive_reduction,
+            min_value_tolerance=min_value_tolerance,
+            oversampling_factor=oversampling_factor,
+            exponent_search_steps=exponent_search_steps,
+        )
         if apply_fejer:
-            coeff = apply_fejer_weights(coeff)
-        return cls(coeff)
+            return result.fejer_reduce(n_coefficients)
+        return result
 
     @classmethod
     def from_distribution(
@@ -56,16 +101,39 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients: int | tuple[int, ...],
         *,
         apply_fejer: bool = True,
+        reduction_kernel: str = "fejer",
+        adaptive_reduction: bool = False,
+        min_value_tolerance: float = 1e-12,
+        oversampling_factor: int = 1,
+        exponent_search_steps: int = 24,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Approximate a hypertoroidal distribution in Fejer-reduced identity form."""
+        """Approximate a hypertoroidal distribution in positive-kernel identity form."""
 
         if isinstance(distribution, HypertoroidalFourierDistribution):
-            return cls.from_fourier_distribution(distribution, n_coefficients, apply_fejer=apply_fejer)
+            return cls.from_fourier_distribution(
+                distribution,
+                n_coefficients,
+                apply_fejer=apply_fejer,
+                reduction_kernel=reduction_kernel,
+                adaptive_reduction=adaptive_reduction,
+                min_value_tolerance=min_value_tolerance,
+                oversampling_factor=oversampling_factor,
+                exponent_search_steps=exponent_search_steps,
+            )
         if not isinstance(distribution, AbstractHypertoroidalDistribution):
             raise TypeError("distribution must be an AbstractHypertoroidalDistribution.")
 
         base = HypertoroidalFourierDistribution.from_distribution(distribution, n_coefficients, "identity")
-        return cls.from_fourier_distribution(base, n_coefficients, apply_fejer=apply_fejer)
+        return cls.from_fourier_distribution(
+            base,
+            n_coefficients,
+            apply_fejer=apply_fejer,
+            reduction_kernel=reduction_kernel,
+            adaptive_reduction=adaptive_reduction,
+            min_value_tolerance=min_value_tolerance,
+            oversampling_factor=oversampling_factor,
+            exponent_search_steps=exponent_search_steps,
+        )
 
     @classmethod
     def from_function(
@@ -74,11 +142,25 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients: int | tuple[int, ...],
         *,
         apply_fejer: bool = True,
+        reduction_kernel: str = "fejer",
+        adaptive_reduction: bool = False,
+        min_value_tolerance: float = 1e-12,
+        oversampling_factor: int = 1,
+        exponent_search_steps: int = 24,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Construct a Fejer identity HFD by sampling a vectorized function."""
+        """Construct a positive-kernel identity HFD by sampling a vectorized function."""
 
         base = HypertoroidalFourierDistribution.from_function(fun, n_coefficients, "identity")
-        return cls.from_fourier_distribution(base, n_coefficients, apply_fejer=apply_fejer)
+        return cls.from_fourier_distribution(
+            base,
+            n_coefficients,
+            apply_fejer=apply_fejer,
+            reduction_kernel=reduction_kernel,
+            adaptive_reduction=adaptive_reduction,
+            min_value_tolerance=min_value_tolerance,
+            oversampling_factor=oversampling_factor,
+            exponent_search_steps=exponent_search_steps,
+        )
 
     @classmethod
     def from_function_values(
@@ -88,8 +170,13 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         *,
         already_transformed: bool = False,
         apply_fejer: bool = True,
+        reduction_kernel: str = "fejer",
+        adaptive_reduction: bool = False,
+        min_value_tolerance: float = 1e-12,
+        oversampling_factor: int = 1,
+        exponent_search_steps: int = 24,
     ) -> "FejerHypertoroidalFourierDistribution":
-        """Construct a Fejer identity HFD from values on a regular grid."""
+        """Construct a positive-kernel identity HFD from regular-grid values."""
 
         base = HypertoroidalFourierDistribution.from_function_values(
             fvals,
@@ -98,26 +185,31 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             already_transformed=already_transformed,
         )
         target_shape = base.coeff_mat.shape if n_coefficients is None else n_coefficients
-        return cls.from_fourier_distribution(base, target_shape, apply_fejer=apply_fejer)
+        return cls.from_fourier_distribution(
+            base,
+            target_shape,
+            apply_fejer=apply_fejer,
+            reduction_kernel=reduction_kernel,
+            adaptive_reduction=adaptive_reduction,
+            min_value_tolerance=min_value_tolerance,
+            oversampling_factor=oversampling_factor,
+            exponent_search_steps=exponent_search_steps,
+        )
 
     def fejer_reduce(self, n_coefficients: int | tuple[int, ...] | None = None) -> "FejerHypertoroidalFourierDistribution":
-        """Center-crop/pad and apply separable Fejer weights.
-
-        This is the Fejer analogue of sharp truncation. The zero-frequency
-        coefficient is unchanged by the weights; the constructor normalizes the
-        result if the input represented an unnormalized density.
-        """
+        """Center-crop/pad and reduce coefficients with the configured kernel."""
 
         if n_coefficients is None:
             n_coefficients = self.coeff_mat.shape
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
-        return type(self)(fejer_reduce_coefficients(self.coeff_mat, n_coefficients))
+        coeff = self._reduce_coefficients(self.coeff_mat, n_coefficients)
+        return self._new_with_same_reduction(coeff)
 
     def truncate(self, n_coefficients: int | tuple[int, ...], force_normalization: bool = False):
         """Return a distribution with the requested centered coefficient shape.
 
-        If the shape changes, reduction is performed with Fejer weights instead
-        of sharp truncation. If the shape is unchanged, only optional
+        If the shape changes, reduction is performed with the configured kernel
+        instead of sharp truncation. If the shape is unchanged, only optional
         normalization is performed, mirroring PyRecEst's truncate semantics.
         """
 
@@ -130,7 +222,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         return self.fejer_reduce(n_coefficients)
 
     def multiply(self, f2: HypertoroidalFourierDistribution, n_coefficients=None):
-        """Pointwise multiplication followed by Fejer coefficient reduction."""
+        """Pointwise multiplication followed by configured coefficient reduction."""
 
         self._validate_compatible_identity(f2, "multiply")
         if n_coefficients is None:
@@ -138,14 +230,14 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
 
         conv = signal.fftconvolve(self.coeff_mat, f2.coeff_mat, mode="full")
-        return type(self)(fejer_reduce_coefficients(conv, n_coefficients))
+        return self._new_with_same_reduction(self._reduce_coefficients(conv, n_coefficients))
 
     def convolve(self, f2: HypertoroidalFourierDistribution, n_coefficients=None):
         """Topology-aware convolution for additive noise in identity form.
 
         For equal coefficient shapes this keeps the ordinary IFF Hadamard-product
-        prediction. Fejer reduction is only used to align differing coefficient
-        shapes.
+        prediction. Positive-kernel reduction is only used to align differing
+        coefficient shapes.
         """
 
         self._validate_compatible_identity(f2, "convolve")
@@ -157,18 +249,35 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         if tuple(f2.coeff_mat.shape) == n_coefficients:
             f2_aligned = f2
         else:
-            f2_aligned = type(self).from_fourier_distribution(f2, n_coefficients, apply_fejer=True)
+            f2_aligned = type(self).from_fourier_distribution(f2, n_coefficients, apply_fejer=True, **self.reduction_options)
 
         c_conv = (2.0 * np.pi) ** self.dim * f1_aligned.coeff_mat * f2_aligned.coeff_mat
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", "Normalization:notNormalized")
-            return type(self)(c_conv)
+            return self._new_with_same_reduction(c_conv)
 
     def shift(self, shift_by):
-        """Shift the distribution on the hypertorus and keep the Fejer subclass."""
+        """Shift the distribution on the hypertorus and keep reduction settings."""
 
         shifted = super().shift(shift_by)
-        return type(self).from_fourier_distribution(shifted, shifted.coeff_mat.shape, apply_fejer=False)
+        return type(self).from_fourier_distribution(shifted, shifted.coeff_mat.shape, apply_fejer=False, **self.reduction_options)
+
+    def _reduce_coefficients(self, coefficients, n_coefficients: tuple[int, ...]):
+        if self.adaptive_reduction:
+            coeff, exponent = adaptive_kernel_reduce_coefficients(
+                coefficients,
+                n_coefficients,
+                kernel=self.reduction_kernel,
+                min_value_tolerance=self.min_value_tolerance,
+                oversampling_factor=self.oversampling_factor,
+                exponent_search_steps=self.exponent_search_steps,
+                return_exponent=True,
+            )
+            self.last_reduction_exponent = exponent
+            return coeff
+
+        self.last_reduction_exponent = 1.0 if self.reduction_kernel != "sharp" else 0.0
+        return reduce_coefficients(coefficients, n_coefficients, kernel=self.reduction_kernel)
 
     def _validate_compatible_identity(self, other, operation: str) -> None:
         if not isinstance(other, HypertoroidalFourierDistribution):
