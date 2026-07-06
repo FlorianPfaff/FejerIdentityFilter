@@ -55,8 +55,10 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             "exponent_search_steps": self.exponent_search_steps,
         }
 
-    def _new_with_same_reduction(self, coeff_mat) -> "FejerHypertoroidalFourierDistribution":
-        return type(self)(coeff_mat, **self.reduction_options)
+    def _new_with_same_reduction(self, coeff_mat, *, reduction_exponent: float | None = None) -> "FejerHypertoroidalFourierDistribution":
+        result = type(self)(coeff_mat, **self.reduction_options)
+        result.last_reduction_exponent = reduction_exponent
+        return result
 
     @classmethod
     def from_fourier_distribution(
@@ -203,7 +205,7 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
             n_coefficients = self.coeff_mat.shape
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
         coeff = self._reduce_coefficients(self.coeff_mat, n_coefficients)
-        return self._new_with_same_reduction(coeff)
+        return self._new_with_same_reduction(coeff, reduction_exponent=self.last_reduction_exponent)
 
     def truncate(self, n_coefficients: int | tuple[int, ...], force_normalization: bool = False):
         """Return a distribution with the requested centered coefficient shape.
@@ -230,7 +232,8 @@ class FejerHypertoroidalFourierDistribution(HypertoroidalFourierDistribution):
         n_coefficients = normalize_coefficient_shape(n_coefficients, dim=self.dim)
 
         conv = signal.fftconvolve(self.coeff_mat, f2.coeff_mat, mode="full")
-        return self._new_with_same_reduction(self._reduce_coefficients(conv, n_coefficients))
+        coeff = self._reduce_coefficients(conv, n_coefficients)
+        return self._new_with_same_reduction(coeff, reduction_exponent=self.last_reduction_exponent)
 
     def convolve(self, f2: HypertoroidalFourierDistribution, n_coefficients=None):
         """Topology-aware convolution for additive noise in identity form.
