@@ -135,7 +135,7 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
 
         d_sys = self._as_fejer_identity_distribution(
             d_sys,
-            "predict_identity:automaticConversion: d_sys is not a positive-kernel identity Fourier distribution. Transforming with the same number of coefficients as the filter.",
+            "predict_identity:automaticConversion: d_sys is not a positive-kernel identity Fourier distribution with the filter's reduction settings. Transforming with the same number of coefficients as the filter.",
         )
         self._filter_state = self._filter_state.convolve(d_sys, self._filter_state.coeff_mat.shape)
 
@@ -193,11 +193,11 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
                 raise ValueError("f_trans must use the identity transformation.")
             if f_trans.dim != 2 * dim:
                 raise ValueError("f_trans must be a 2*dim-dimensional HFD (first dim dims for x_{k+1}, last dim dims for x_k).")
-            if not isinstance(f_trans, FejerHypertoroidalFourierDistribution):
+            if not isinstance(f_trans, FejerHypertoroidalFourierDistribution) or f_trans.reduction_options != self.reduction_options:
                 f_trans = FejerHypertoroidalFourierDistribution.from_fourier_distribution(
                     f_trans,
                     f_trans.coeff_mat.shape,
-                    apply_fejer=True,
+                    apply_fejer=not isinstance(f_trans, FejerHypertoroidalFourierDistribution),
                     **self.reduction_options,
                 )
 
@@ -213,7 +213,7 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
 
         d_meas = self._as_fejer_identity_distribution(
             d_meas,
-            "update_identity:automaticConversion: d_meas is not a positive-kernel identity Fourier distribution. Transforming with the same number of coefficients as the filter.",
+            "update_identity:automaticConversion: d_meas is not a positive-kernel identity Fourier distribution with the filter's reduction settings. Transforming with the same number of coefficients as the filter.",
         )
         z = array(z)
         if z.shape != (self._filter_state.dim,):
@@ -255,8 +255,17 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
         self._filter_state = self._filter_state.multiply(likelihood, n_coefficients)
 
     def _as_fejer_identity_distribution(self, distribution, warning_message: str) -> FejerHypertoroidalFourierDistribution:
-        if isinstance(distribution, FejerHypertoroidalFourierDistribution) and distribution.coeff_mat.shape == self._filter_state.coeff_mat.shape:
-            return distribution
+        target_shape = self._filter_state.coeff_mat.shape
+        if isinstance(distribution, FejerHypertoroidalFourierDistribution):
+            if distribution.coeff_mat.shape == target_shape and distribution.reduction_options == self.reduction_options:
+                return distribution
+            warnings.warn(warning_message, RuntimeWarning)
+            return FejerHypertoroidalFourierDistribution.from_fourier_distribution(
+                distribution,
+                target_shape,
+                apply_fejer=distribution.coeff_mat.shape != target_shape,
+                **self.reduction_options,
+            )
 
         if isinstance(distribution, HypertoroidalFourierDistribution):
             if distribution.transformation != "identity":
@@ -264,7 +273,7 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
             warnings.warn(warning_message, RuntimeWarning)
             return FejerHypertoroidalFourierDistribution.from_fourier_distribution(
                 distribution,
-                self._filter_state.coeff_mat.shape,
+                target_shape,
                 apply_fejer=True,
                 **self.reduction_options,
             )
@@ -274,7 +283,7 @@ class FejerIdentityFilter(AbstractFilter, HypertoroidalFilterMixin):
         warnings.warn(warning_message, RuntimeWarning)
         return FejerHypertoroidalFourierDistribution.from_distribution(
             distribution,
-            self._filter_state.coeff_mat.shape,
+            target_shape,
             apply_fejer=True,
             **self.reduction_options,
         )
