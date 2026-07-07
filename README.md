@@ -7,6 +7,7 @@ The package is designed as a small extension around PyRecEst's `HypertoroidalFou
 - `FejerHypertoroidalFourierDistribution`, an identity Fourier distribution whose coefficient reduction can use sharp truncation, Fejer/Cesaro weights, or Fejer-Korovkin weights.
 - `FejerIdentityFilter`, a hypertoroidal identity Fourier filter that defaults to an adaptive Fejer-Korovkin nonnegativity safeguard.
 - `examples/compare_with_fourier_filters.py`, a reproducible comparison against PyRecEst's ordinary Fourier identity filter (IFF) and Fourier square-root filter (SqFF).
+- `examples/compare_zero_likelihood_filters.py`, a coefficient-level benchmark for likelihoods with zeros, including a smooth zero where the posterior density is smooth but the square root has a cusp.
 
 The repository name still uses "Fejer" because the first prototype implemented plain Fejer means. The recommended variant is now the adaptive Fejer-Korovkin safeguard.
 
@@ -90,7 +91,7 @@ poetry install --with dev
 
 ## Comparison with Fourier filters
 
-Run the included comparison script from the repository root:
+Run the included PyRecEst-style comparison script from the repository root:
 
 ```bash
 python examples/compare_with_fourier_filters.py --coefficients 5 9 15 25 33
@@ -104,6 +105,21 @@ The script compares:
 - PyRecEst SqFF: `HypertoroidalFourierFilter(..., transformation="sqrt")`
 
 It reports runtime per predict/update cycle, circular mean error against a dense-grid reference, integrated absolute density error, minimum PDF value on a diagnostic grid, and negative grid mass.
+
+## Zero-likelihood benchmark
+
+The second benchmark isolates one circular update with likelihoods that have zeros:
+
+```bash
+python examples/compare_zero_likelihood_filters.py --coefficients 9 17 33 65
+```
+
+It includes two scenarios:
+
+- `smooth_zero`: `L(x) = sin((x-z)/2)^2`. The posterior density is smooth, but the square root has a cusp at the zero.
+- `hard_interval`: an interval-censoring gate with a discontinuity.
+
+This benchmark is intended to test the case where the identity representation can remain favorable while the square-root representation loses spectral smoothness.
 
 ## Interpretation
 
