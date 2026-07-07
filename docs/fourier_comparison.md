@@ -7,7 +7,7 @@ The positive-kernel identity filter is meant to sit between PyRecEst's two Fouri
 - Plain Fejer identity reduction keeps the identity representation and the cheap additive prediction step, but replaces sharp coefficient truncation after multiplication by unconditional Fejer/Cesaro smoothing.
 - Adaptive Fejer-Korovkin identity reduction keeps sharp IFF truncation unless grid negativity is detected. If negativity appears, it activates a positive-kernel safeguard.
 
-## What is being compared
+## PyRecEst-style wrapped-normal comparison
 
 The example script `examples/compare_with_fourier_filters.py` runs a one-dimensional circular identity-model scenario and compares:
 
@@ -29,6 +29,23 @@ Machine-readable output is also available:
 python examples/compare_with_fourier_filters.py --format csv
 python examples/compare_with_fourier_filters.py --format json
 ```
+
+## Zero-likelihood comparison
+
+The script `examples/compare_zero_likelihood_filters.py` isolates a single circular update step and uses dense-grid reference densities. It is intentionally coefficient-level and does not use PyRecEst filter objects, so that the representation error is easier to interpret.
+
+Run it from the repository root:
+
+```bash
+python examples/compare_zero_likelihood_filters.py --coefficients 9 17 33 65
+```
+
+The two built-in scenarios are:
+
+1. `smooth_zero`, with `L(x)=sin((x-z)/2)^2`. The posterior density is smooth, but the square root has a cusp at the zero of the likelihood.
+2. `hard_interval`, with an interval-censoring gate. This produces a discontinuity and is a stress test for all global Fourier representations.
+
+This benchmark is designed for the case where SqFF's smooth-density advantage may disappear. It should be reported separately from the wrapped-normal timing benchmark because it answers a different question: whether the identity representation plus an adaptive safeguard is useful when zeros or near-zeros harm the square-root representation.
 
 ## Expected qualitative behavior
 
