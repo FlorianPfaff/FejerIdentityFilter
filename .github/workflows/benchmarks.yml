@@ -1,0 +1,55 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/benchmarks.yml"
+      - "examples/**"
+      - "src/**"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Fourier filter benchmarks / Python 3.11
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package and benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Run wrapped-normal benchmark
+        run: |
+          mkdir -p benchmark-results
+          python examples/compare_with_fourier_filters.py \
+            --coefficients 5 9 15 25 33 \
+            --repetitions 3 \
+            --grid-size 4096 \
+            --format csv > benchmark-results/wrapped_normal.csv
+
+      - name: Run zero-likelihood benchmark
+        run: |
+          mkdir -p benchmark-results
+          python examples/compare_zero_likelihood_filters.py \
+            --coefficients 9 17 33 65 \
+            --repetitions 3 \
+            --grid-size 8192 \
+            --format csv > benchmark-results/zero_likelihood.csv
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results/*.csv
+          if-no-files-found: error
